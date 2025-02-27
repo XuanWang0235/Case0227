@@ -30,9 +30,84 @@ public partial class DoneOkController : ControllerBase
     /// <param name="payload"></param>
     /// <returns></returns>
     [HttpPost]
-    [Route("/api/RedirectOk")]
-    //public async Task<IActionResult> RedirectOkAsync([FromBody] string tradeId)
+    [Route("RedirectOk")]
     public async Task<IActionResult> RedirectOk([FromBody] RedirectRequest payload)
+    {
+
+
+        try
+        {
+            TimeZoneInfo taipeiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Taipei Standard Time");
+            DateTime taipeiTime = TimeZoneInfo.ConvertTime(DateTime.Now, taipeiTimeZone);
+
+            var caseTime = taipeiTime;
+            LogToFile("現在的系統時間:"+ caseTime);
+            //caseTime = new DateTime(2025, 2, 28, 21, 0, 0, DateTimeKind.Unspecified);
+            //caseTime = new DateTime(2025, 3, 5, 21, 0, 0, DateTimeKind.Unspecified);
+            //caseTime = new DateTime(2025, 4, 7, 21, 0, 0, DateTimeKind.Unspecified);
+            caseTime = TimeZoneInfo.ConvertTime(caseTime, taipeiTimeZone);
+
+            LogToFile("調整過的系統時間,模擬上線後的真實時間:"+ caseTime);
+            var switchTime = new DateTime(2025, 2, 28, 23, 59, 59, DateTimeKind.Unspecified);
+
+            // 一般會員也是會先有記錄才能購買的
+            var vip = await _AppDbContext.WEB_MEMBER
+                                     .Where(a => a.MEMBER_SN == payload.RecordStatus)
+                                     .FirstOrDefaultAsync();
+            vip.MEMBER_VIP_TYPE = 3;
+            if (caseTime >switchTime)//如果大於切換時間套用一年
+            {
+                vip.MEMBER_VIP_EXPIRY_DATE = DateTime.Now.AddYears(1); await _AppDbContext.SaveChangesAsync();
+                LogToFile($"VIP有效日期{vip.MEMBER_VIP_EXPIRY_DATE.ToString("yyyy-MM-dd")}");
+            }
+            else//如果小於切換時間仍然有效到 2026-03-01
+            {
+                // 一般會員也是會先有記錄才能購買的
+                vip.MEMBER_VIP_EXPIRY_DATE = DateTime.Parse("2026-03-01"); await _AppDbContext.SaveChangesAsync();
+                LogToFile($"VIP有效日期{vip.MEMBER_VIP_EXPIRY_DATE.ToString("yyyy-MM-dd")}");
+            }
+
+
+
+            // NOTE by Mark, 10/27, 年訂閱會員 新增一筆 [DISCORD_EVENT], 
+            // 讓 bot 去加 role
+            //var discordUser = await _AppDbContext.DISCORD_USER.Where(a => a.DISCORD_USER_SN == objTrade.MEMBER_SN).FirstOrDefaultAsync();
+
+            var discordUser = await _AppDbContext.DISCORD_USER.Where(a => "" + a.DISCORD_USER_ID == vip.MEMBER_BIND_DISCORD_ID).FirstOrDefaultAsync();
+            if (discordUser != null)
+            {
+                var newEvent = new DISCORD_EVENT();
+                newEvent.DISCORD_EVENT_TYPE = 1;//(2.0訂閱學員,markplchen), added successfully! |
+                newEvent.DISCORD_EVENT_STATE = 0;//0 for bot TODO
+                newEvent.WEB_SOMETHING_SN = payload.RecordStatus;//[WEB_MEMBER].[MEMBER_SN]
+                                                                 //newEvent.MEMBER_BIND_DISCORD_ID = discordUser.DISCORD_USER_ID;//[DISCORD_USER].[DISCORD_USER_ID]
+                                                                 // MARKTODO 待優化
+                newEvent.MEMBER_BIND_DISCORD_ID = "" + discordUser.DISCORD_USER_ID;//[DISCORD_USER].[DISCORD_USER_ID]
+                newEvent.DISCORD_CHANNEL_ID = 0;
+                newEvent.ADD_DATE = DateTime.Now;
+                newEvent.FINISH_DATE = DateTime.Now;   // MARKTODO 待優化
+                newEvent.DISCORD_EVENT_LOG = ".";// MARKTODO 待優化
+                newEvent.DISCORD_EVENT_MSG = ".";// MARKTODO 待優化
+                _AppDbContext.Add(newEvent);
+                await _AppDbContext.SaveChangesAsync();
+
+            }
+
+
+            // Return a success response
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            LogToFile($"Error processing RedirectOk for tradeId {payload.TradeId}: {ex.Message}");
+            return StatusCode(500, "An error occurred! " + ex.Message);
+        }
+    }
+
+    [HttpPost]
+    [Route("/api/RedirectOkXXX")]
+    //public async Task<IActionResult> RedirectOkAsync([FromBody] string tradeId)
+    public async Task<IActionResult> RedirectOkXXX([FromBody] RedirectRequest payload)
     {
 
 
@@ -75,7 +150,7 @@ public partial class DoneOkController : ControllerBase
 
 
                 // 付款成功後更新額外的資訊
-                 var objTrade = await _AppDbContext.WEB_TRADE.Where(a => a.TRADE_SN == objOms.TRADE_SN).FirstOrDefaultAsync();
+                var objTrade = await _AppDbContext.WEB_TRADE.Where(a => a.TRADE_SN == objOms.TRADE_SN).FirstOrDefaultAsync();
 
                 // NOTE by Mark, MARKTODO 2.6, 後續應該在此開發票, 綜合考量, 現階段先仿 Discord bot 方式，獨立查看執行
 
@@ -175,7 +250,6 @@ public partial class DoneOkController : ControllerBase
             return StatusCode(500, "An error occurred! " + ex.Message);
         }
     }
-
 
     [HttpPost]
     [Route("Callback")]
